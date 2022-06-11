@@ -89,6 +89,8 @@ class RCCFileInfoNode:
 
 
 class QResourceRoot:
+    """The instance holds the base addresses for tree, names and data from which
+    obtain the node information."""
     def __init__(self, addr_root, addr_names, addr_data):
         self.root = addr_root
         self.names = addr_names

@@ -14,15 +14,19 @@ logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
 
-def get_function_by_name(name):
+def get_function_by_name(name, namespace=None):
     """Little hacky way of finding the function by name since getFunction() by FlatAPI
     doesn't work."""
     candidates = [_ for _ in currentProgram.getFunctionManager().getFunctionsNoStubs(True) if name == _.name]
 
-    if len(candidates) > 1:
-        raise ValueError("We expected to find only one of '%s'" % name)
+    if namespace:
+        candidates = [_ for _ in candidates if _.getParentNamespace().getName() == namespace]
+
+    if len(candidates) != 1:
+        raise ValueError("We expected to find only one of '%s' instead we have %s" % (name, candidates))
 
     return candidates[0]
+
 
 def get_high_function(func):
     options = DecompileOptions()
@@ -37,8 +41,9 @@ def get_high_function(func):
     high = res.getHighFunction()
     return high
 
+
 def get_stack_var_from_varnode(func, varnode):
-    logger.debug("get_stack_var_from_varnode():", varnode, type(varnode))
+    logger.debug("get_stack_var_from_varnode(): %s | %s" % (varnode, type(varnode)))
     if type(varnode) not in [Varnode, VarnodeAST]:
         raise Exception("Invalid value. Expected `Varnode` or `VarnodeAST`, got {}.".format(type(varnode)))
 
@@ -81,7 +86,7 @@ def get_stack_var_from_varnode(func, varnode):
 
 
 def get_vars_from_varnode(func, node, variables=None):
-    logger.debug("get_get_vars_from_varnode():", node, type(node))
+    logger.debug("get_get_vars_from_varnode(): %s | %s" % (node, type(node)))
     if type(node) not in [PcodeOpAST, VarnodeAST]:
         raise Exception("Invalid value passed. Got {}.".format(type(node)))
 
@@ -91,7 +96,7 @@ def get_vars_from_varnode(func, node, variables=None):
 
     # We must use `getDef()` on VarnodeASTs
     if type(node) == VarnodeAST:
-        logger.debug(" from addr:", node.getPCAddress())
+        logger.debug(" from addr: {}".format(node.getPCAddress()))
         # For `get_stack_var_from_varnode` see:
         # https://github.com/HackOvert/GhidraSnippets
         # Ctrl-F for "get_stack_var_from_varnode"
@@ -103,7 +108,7 @@ def get_vars_from_varnode(func, node, variables=None):
             variables = get_vars_from_varnode(func, node, variables)
     # We must call `getInputs()` on PcodeOpASTs
     elif type(node) == PcodeOpAST:
-        logger.debug(" from addr:", node.getSeqnum())
+        logger.debug(" from addr: {}".format(node.getSeqnum()))
         nodes = list(node.getInputs())
         for node in nodes:
             if type(node.getHigh()) == HighLocal:
@@ -111,6 +116,7 @@ def get_vars_from_varnode(func, node, variables=None):
             else:
                 variables = get_vars_from_varnode(func, node, variables)
     return variables
+
 
 def getXref(func):
     target_addr = func.entryPoint
@@ -121,6 +127,32 @@ def getXref(func):
         caller = getFunctionContaining(call_addr)
         callers.append(caller)
     return list(set(callers))
+
+
+def get_functions_via_xref(target_addr):
+    """return the xrefs defined towards the target_addr as a list
+    having as entries couple of the form (call_addr, calling function)
+    where the latter is None when is not defined."""
+    references = getReferencesTo(target_addr)
+    callers = []
+    for xref in references:
+        call_addr = xref.getFromAddress()
+        caller = getFunctionContaining(call_addr)
+
+        if caller is None:
+            logger.warning("found reference to undefined at {}".format(call_addr))
+
+        callers.append((call_addr, caller))
+
+    return callers
+
+
+def _getCountedXrefs(target_addr):
+    from collections import Counter
+    xrefs = get_functions_via_xref(target_addr)
+
+    return Counter([_[1] for _ in xrefs])
+
 
 def getCallerInfo(func, caller, options = DecompileOptions(), ifc = DecompInterface()):
     logger.info("function: '%s'" % caller.name)
@@ -170,13 +202,16 @@ def getCallerInfo(func, caller, options = DecompileOptions(), ifc = DecompInterf
                         # print "lsm", lsm.findLocal(arg.getAddress(), None)
 
                         if pos != 0:
-                            logger.debug("initial arg%d: %s" % (pos, arg))
+                            logger.info("initial arg%d: %s" % (pos, arg))
                             refined = get_vars_from_varnode(caller, arg)
 
                             if len(refined) > 0:
                                 refined = refined[0]
                                 logger.debug("found variable '%s' for arg%d" % (refined, pos))
-                                # print refined, type(refined)
+                                logger.debug("{} with type {}".format(refined, type(refined)))
+
+                                calling_args[pos] = refined
+                                continue
                                 """
 
                                 print "symbol", refined.getSymbol(), refined.getSymbol().getAddress(), dir(refined.getSymbol()), refined.getSymbol().getSymbolType()
@@ -232,8 +267,17 @@ def getCallerInfo(func, caller, options = DecompileOptions(), ifc = DecompInterf
 
                                 calling_args[pos] = output
 
-
                                 continue  # we exit since our job is finished
+
+                            if arg.isConstant():
+                                calling_args[pos] = arg.getOffset()
+                                continue
+
+                            if arg.getDef() is None:
+                                logger.warning("this arg is strange")
+                                calling_args[pos] = None
+                                continue
+
                             while arg.getDef().getOpcode() == PcodeOp.CAST:
                                 arg = arg.getDef().getInput(0)
 
@@ -257,4 +301,3 @@ def getCallerInfo(func, caller, options = DecompileOptions(), ifc = DecompInterf
                     # remember:  it's possible we have more than one call to the same function
                     logger.info(calling_args)
                     yield calling_args
-
