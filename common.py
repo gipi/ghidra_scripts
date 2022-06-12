@@ -201,98 +201,95 @@ def getCallerInfo(func, caller, options = DecompileOptions(), ifc = DecompInterf
                         # print "var", var, var.getSymbol(), var.getDataType()
                         # print "lsm", lsm.findLocal(arg.getAddress(), None)
 
-                        if pos != 0:
-                            logger.info("initial arg%d: %s" % (pos, arg))
-                            refined = get_vars_from_varnode(caller, arg)
+                        logger.info("initial arg%d: %s" % (pos, arg))
+                        refined = get_vars_from_varnode(caller, arg)
 
-                            if len(refined) > 0:
-                                refined = refined[0]
-                                logger.debug("found variable '%s' for arg%d" % (refined, pos))
-                                logger.debug("{} with type {}".format(refined, type(refined)))
+                        if len(refined) > 0:
+                            refined = refined[0]
+                            logger.debug("found variable '%s' for arg%d" % (refined, pos))
+                            logger.debug("{} with type {}".format(refined, type(refined)))
 
-                                calling_args[pos] = refined
-                                continue
-                                """
+                            calling_args[pos] = refined
+                            continue
+                            """
 
-                                print "symbol", refined.getSymbol(), refined.getSymbol().getAddress(), dir(refined.getSymbol()), refined.getSymbol().getSymbolType()
-                                print "address", refined.getLastStorageVarnode().getAddress()
-                                print "high", refined.getLastStorageVarnode().getHigh()
-                                # print "getDef()", refined.getDef()
-                                print "last", refined.getFirstStorageVarnode().getDef()
-                                print "stack", stack_frame.getVariableContaining(refined.getStackOffset())
-                                print "references", '\n'.join([str(_) for _ in ref_mgr.getReferencesTo(refined)])
-                                """
-                                # print "auaua", [(_.getFromAddress().getOffset(), _.getStackOffset()) for _ in ref_mgr.getReferencesTo(refined) if
-                                #      _.getFromAddress() < source_addr]
-                                # here we are going to create an ordered list with all the references to the given variable
-                                # that happen before the call and return only the last one that hopefully is the one
-                                # setting the value
-                                # Bad enough this is a struct so the variable points to the start address of the struct
-                                # if you want a specific field you have to add its offset
-                                offset_field = refined.getStackOffset() + refined.getDataType().getComponent(4).getOffset()
-                                # print "offset_field", offset_field
-                                refs = sorted([(_.getFromAddress().getOffset(), _)
-                                               for _ in ref_mgr.getReferencesTo(refined)
-                                               if _.getFromAddress() < source_addr
-                                                and _.getStackOffset() == offset_field],
-                                              key = lambda _ : _[0])[-1]
+                            print "symbol", refined.getSymbol(), refined.getSymbol().getAddress(), dir(refined.getSymbol()), refined.getSymbol().getSymbolType()
+                            print "address", refined.getLastStorageVarnode().getAddress()
+                            print "high", refined.getLastStorageVarnode().getHigh()
+                            # print "getDef()", refined.getDef()
+                            print "last", refined.getFirstStorageVarnode().getDef()
+                            print "stack", stack_frame.getVariableContaining(refined.getStackOffset())
+                            print "references", '\n'.join([str(_) for _ in ref_mgr.getReferencesTo(refined)])
+                            """
+                            # print "auaua", [(_.getFromAddress().getOffset(), _.getStackOffset()) for _ in ref_mgr.getReferencesTo(refined) if
+                            #      _.getFromAddress() < source_addr]
+                            # here we are going to create an ordered list with all the references to the given variable
+                            # that happen before the call and return only the last one that hopefully is the one
+                            # setting the value
+                            # Bad enough this is a struct so the variable points to the start address of the struct
+                            # if you want a specific field you have to add its offset
+                            offset_field = refined.getStackOffset() + refined.getDataType().getComponent(4).getOffset()
+                            # print "offset_field", offset_field
+                            refs = sorted([(_.getFromAddress().getOffset(), _)
+                                           for _ in ref_mgr.getReferencesTo(refined)
+                                           if _.getFromAddress() < source_addr
+                                            and _.getStackOffset() == offset_field],
+                                          key = lambda _ : _[0])[-1]
 
-                                instr = getInstructionAt(refs[1].getFromAddress())
-                                #print "op before", refs, refs[1]
-                                #print "instr:", instr, instr.getPcode(), instr.getDefaultOperandRepresentation(0)
-                                annotation = codeUnitFormat.getRepresentationString(instr)
-                                # print "annotation", annotation
-                                from_annotation = getSymbolFromAnnotation(annotation)
-                                logger.debug("symbol from annotations", from_annotation)
+                            instr = getInstructionAt(refs[1].getFromAddress())
+                            #print "op before", refs, refs[1]
+                            #print "instr:", instr, instr.getPcode(), instr.getDefaultOperandRepresentation(0)
+                            annotation = codeUnitFormat.getRepresentationString(instr)
+                            # print "annotation", annotation
+                            from_annotation = getSymbolFromAnnotation(annotation)
+                            logger.debug("symbol from annotations", from_annotation)
 
-                                rX = instr.getRegister(0)
+                            rX = instr.getRegister(0)
 
-                                # print "instr+reg", rX, instr.getInstructionContext().getRegisterValue(rX)
+                            # print "instr+reg", rX, instr.getInstructionContext().getRegisterValue(rX)
 
-                                pcode = instr.getPcode()[1]
+                            pcode = instr.getPcode()[1]
 
-                                # print "pcode:", pcode, pcode.getSeqnum().getTarget()
+                            # print "pcode:", pcode, pcode.getSeqnum().getTarget()
 
-                                if pcode.getOpcode() != PcodeOp.STORE:
-                                    raise ValueError("I was expecting a STORE operation here")
+                            if pcode.getOpcode() != PcodeOp.STORE:
+                                raise ValueError("I was expecting a STORE operation here")
 
-                                value = pcode.getInput(1)
+                            value = pcode.getInput(1)
 
-                                # print "value", value, value.getAddress(), value.getDef(), value.getDescendants()
+                            # print "value", value, value.getAddress(), value.getDef(), value.getDescendants()
 
-                                #c_line = getCLine(markup, pcode.getSeqnum().getTarget())
-                                #print "C code", c_line
+                            #c_line = getCLine(markup, pcode.getSeqnum().getTarget())
+                            #print "C code", c_line
 
-                                output = getDataAt(from_annotation.getAddress()) if from_annotation else None
+                            output = getDataAt(from_annotation.getAddress()) if from_annotation else None
 
-                                calling_args[pos] = output
+                            calling_args[pos] = output
 
-                                continue  # we exit since our job is finished
+                            continue  # we exit since our job is finished
 
-                            if arg.isConstant():
-                                calling_args[pos] = arg.getOffset()
-                                continue
+                        if arg.isConstant():
+                            calling_args[pos] = arg.getOffset()
+                            continue
 
-                            if arg.getDef() is None:
-                                logger.warning("this arg is strange")
-                                calling_args[pos] = None
-                                continue
+                        if arg.getDef() is None:
+                            logger.warning("this arg is strange")
+                            calling_args[pos] = None
+                            continue
 
-                            while arg.getDef().getOpcode() == PcodeOp.CAST:
-                                arg = arg.getDef().getInput(0)
+                        while arg.getDef().getOpcode() == PcodeOp.CAST:
+                            arg = arg.getDef().getInput(0)
 
-                            # OK, this is a little weird, but PTRSUBs with first arg == 0
-                            # are (usually) global variables at address == second arg
-                            if arg.getDef().getOpcode() == PcodeOp.PTRSUB:
-                                arg = arg.getDef().getInput(1)
-                            elif arg.getDef().getOpcode() == PcodeOp.COPY:
-                                arg = arg.getDef().getInput(0)
-                            else:
-                                raise ValueError("I was not expection that")
-
-                            logger.debug("arg%d: %08x" % (pos, arg.getAddress().getOffset()))
+                        # OK, this is a little weird, but PTRSUBs with first arg == 0
+                        # are (usually) global variables at address == second arg
+                        if arg.getDef().getOpcode() == PcodeOp.PTRSUB:
+                            arg = arg.getDef().getInput(1)
+                        elif arg.getDef().getOpcode() == PcodeOp.COPY:
+                            arg = arg.getDef().getInput(0)
                         else:
-                            logger.debug("arg0: %d" % int(arg.getAddress().getOffset()))
+                            raise ValueError("I was not expection that")
+
+                        logger.debug("arg%d: %08x" % (pos, arg.getAddress().getOffset()))
 
                         calling_args[pos] = arg.getAddress().getOffset()
 

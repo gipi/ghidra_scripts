@@ -336,6 +336,7 @@ class QMetaObject:
                 continue
             tableDialog.add(Argument(address))
 
+        # if we don't have anything to show won't show the table
         if tableDialog.getRowCount() > 0:
             tableDialog.show()
 
@@ -344,41 +345,49 @@ class QMetaObject:
         will identify all the signals of this object."""
         activate = common.get_function_by_name('activate', namespace='QMetaObject')
 
+        # where activate() is called
         xrefs_activate = set(common.getXref(activate))
 
+        # where out MetaObject vtable is referenced
         xrefs_metavtable = common.get_functions_via_xref(self.address)
 
+        # where the xrefs are not inside a function (we suppose are to be defined)
         undefined = filter(lambda _: _[1] is None, xrefs_metavtable)
 
         logger.info("TODO: table for {}".format(undefined))
 
         import collections
 
+        # we look only for functions where there is only one xref
         xrefs_metavtable_counted = collections.Counter([_[1] for _ in xrefs_metavtable])
-
         xrefs_metavtable = set([func for func, count in xrefs_metavtable_counted.items() if count == 1])
-        # TODO: create table with undefined functions
-        # take only the xrefs with one single
 
         logger.debug(xrefs_metavtable_counted)
 
+        # this will be useful later
         klass = self.get_ghidra_class()
 
+        # show the undefined
         if undefined:
             self._show_undefined_functions([_[0] for _ in undefined])
 
+        # take the xrefs (functions) that are common
         for xref in xrefs_metavtable & xrefs_activate:
             if xref is None:
+                # jump the not defined functions
                 continue
 
-            """Now the logic to follow would be
+            """
+            TODO: Now the logic to follow would be
             
             1. it's the unique call inside that function
             2. the first parameter is a function parameter
             """
+            # give me the arguments please
             for caller in common.getCallerInfo(activate, xref):
                 logger.debug(xref)
                 logger.debug(caller)
+                # we obtain the signal name from the index (third argument)
                 signal_name = self.methods[caller[3]]
 
                 logger.info("found signal: '{}'".format(signal_name))
