@@ -242,12 +242,16 @@ def main():
 
     qRegisterResourceData = common.get_function_by_name('qRegisterResourceData')
 
-    for ref in  common.getXref(qRegisterResourceData):
-        if not ref:
+    for call_address, function in  common.get_functions_via_xref(qRegisterResourceData.entryPoint):
+        if not function:
             continue
 
-        for info in common.getCallerInfo(qRegisterResourceData, ref):
-            dump_root(path_dump, *map(toAddr, info[2:]))
+        try:
+            info = common.getCallerInfo(qRegisterResourceData, function, call_address)
+        except:
+            raise ValueError("Probably the arguments at {} are not 'clean' enough".format(call_address))
+
+        dump_root(path_dump, *map(toAddr, info[2:]))
 
 
 main()
