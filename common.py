@@ -118,17 +118,23 @@ def get_function_by_name(name, namespace=None, external=False):
     return candidates[0]
 
 
-def get_high_function(func):
+def decompile_function(func):
     options = DecompileOptions()
     monitor = ConsoleTaskMonitor()
     ifc = DecompInterface()
     ifc.setOptions(options)
-    ifc.openProgram(getCurrentProgram())
     # Setting a simplification style will strip useful `indirect` information.
     # Please don't use this unless you know why you're using it.
-    #ifc.setSimplificationStyle("normalize")
-    res = ifc.decompileFunction(func, 60, monitor)
+    ifc.setSimplificationStyle("normalize")
+
+    ifc.openProgram(getCurrentProgram())
+    return ifc.decompileFunction(func, 60, monitor)
+
+
+def get_high_function(func):
+    res = decompile_function(func)
     high = res.getHighFunction()
+
     return high
 
 
