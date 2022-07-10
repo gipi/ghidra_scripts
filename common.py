@@ -270,7 +270,7 @@ def getCallerInfo(func, caller, call_address, options = DecompileOptions(), ifc 
 
     # we need to commit the local variable in order to see them
     # and make the following analysis working
-    HighFunctionDBUtil.	commitLocalNamesToDatabase(high_func, SourceType.USER_DEFINED)
+    HighFunctionDBUtil.commitLocalNamesToDatabase(high_func, SourceType.USER_DEFINED)
 
     # lsm = high_func.getLocalSymbolMap()
     # markup = res.getCCodeMarkup()
