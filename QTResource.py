@@ -31,9 +31,17 @@ import logging
 import os
 import struct
 import zlib
-
-import jarray
 from collections import deque
+
+from ghidra.program.model.data import (
+    UnsignedIntegerDataType,
+    ShortDataType,
+    StructureDataType,
+    UnsignedLongLongDataType,
+    EndianSettingsDefinition,
+    DataTypeConflictHandler,
+    CategoryPath,
+)
 
 import common
 
@@ -45,24 +53,58 @@ logger.setLevel("INFO")
 # first of all we get the data type we want
 # remember all the fields are big endian
 # probably should be created programmatically
-"""
+RESOURCE_STRUCT_DECLARATION = """
 struct resource_struct_t {
-    uint32_t name_offset;
+    unsigned int name_offset;
     short flags;
-    uint32_t mix;
-    uint32_t offset;
-    uint64_t lastmod;
+    unsigned int mix;
+    unsigned int offset;
+    unsigned long long lastmod;
 };
 """
-dataType = getDataTypes('resource_struct_t')[0]
 
 
+def create():
+    """Create programmatically the struct we need.
 
-def get_bytes_from_binary(address, length):
-    v = jarray.zeros(length, 'b')
-    currentProgram.getMemory().getBytes(address, v)
+    In theory this data type doesn't contain anything exotic BUT since
+    it's unaligned (because of the short) the CParser add unwanted padding."""
+    logger.warning("creating resource_struct_t")
+    resource = StructureDataType("resource_struct_t", 0)
 
-    return v.tostring()
+    resource.setCategoryPath(CategoryPath("/script"))
+
+    resource.add(UnsignedIntegerDataType.dataType, 0, "name_offset", "")
+    resource.add(ShortDataType.dataType, 0, "flags", "")
+    resource.add(UnsignedIntegerDataType.dataType, 0, "mix", "")
+    resource.add(UnsignedIntegerDataType.dataType, 0, "offset", "")
+    resource.add(UnsignedLongLongDataType.dataType, 0, "lastmod", "")
+
+    # you have to save it
+    dtm = currentProgram.getDataTypeManager()
+    dtm.addDataType(resource, DataTypeConflictHandler.REPLACE_HANDLER)
+
+    resource = dtm.getDataType("/script/resource_struct_t")
+
+    # then fix the endianess
+    # https://reverseengineering.stackexchange.com/questions/23330/ghidra-python-create-struct-with-big-endian-field
+    for component in resource.getComponents():
+        component_settings = component.getDefaultSettings()
+        component_settings.setLong('endian', EndianSettingsDefinition.BIG)
+
+    # and then requery again
+    return dtm.getDataType("/script/resource_struct_t")
+
+
+def get():
+    dtm = currentProgram.getDataTypeManager()
+
+    resource_struct_t = dtm.getDataType("/script/resource_struct_t")
+
+    if not resource_struct_t:
+        return create(), True
+
+    return resource_struct_t, False
 
 
 class RCCFileInfoNode:
@@ -96,6 +138,8 @@ class QResourceRoot:
         self.names = addr_names
         self.data = addr_data
 
+        self.resource_struct, _ = get()
+
     @staticmethod
     def __build(node, parent=None):
         data = {
@@ -118,14 +162,14 @@ class QResourceRoot:
         return data
 
     def __get_name(self, name_offset):
-        size = get_bytes_from_binary(self.names.add(name_offset), 2)
+        size = common.get_bytes_from_binary(self.names.add(name_offset), 2)
         size = struct.unpack(">h", size)[0]
         # we are asking for unicode so we double the data
-        return get_bytes_from_binary(self.names.add(name_offset + 2 + 4), size * 2).decode('utf16')
+        return common.get_bytes_from_binary(self.names.add(name_offset + 2 + 4), size * 2).decode('utf16')
 
     def __get_data(self, data_offset, is_compressed):
         """The data part has the length of the data is exposed as a 4 byte Big ending value."""
-        size = get_bytes_from_binary(self.data.add(data_offset), 4)
+        size = common.get_bytes_from_binary(self.data.add(data_offset), 4)
         size = struct.unpack(">I", size)[0]
 
         # print "getting #{} bytes of data from offset {}".format(size, data_offset)
@@ -138,21 +182,24 @@ class QResourceRoot:
         #     original size).
         offset = 8 if is_compressed else 4
         size = size - 4 if is_compressed else size
-        data = get_bytes_from_binary(self.data.add(data_offset + offset), size)
+        data = common.get_bytes_from_binary(self.data.add(data_offset + offset), size)
 
-        # print "now decompressing"
-
-        # if it's compressed you can decompress via zlib
+        # if it's compressed you can decompress it via zlib
         return  zlib.decompress(data) if is_compressed else data
+
+    def __create_data(self, address):
+        logger.info("Creating data @ {}".format(address))
+        return createData(address, self.resource_struct)
 
     def build_from_address(self, address):
         _data = getDataAt(address)
 
         if _data is None:
-            print "Creating data @ {}".format(address)
-            _data = createData(address, dataType)
-        elif _data.getDataType() != dataType:
-            raise Exception("Exists already a data type here @ {}".format(address))
+            _data = self.__create_data(address)
+        elif _data.getDataType() != self.resource_struct:
+            logger.warning("cleaning {} at {}".format(_data.getDataType(), address))
+            removeData(_data)
+            _data = self.__create_data(address)
 
         data = self.__class__.__build(_data)
 
@@ -167,7 +214,7 @@ class QResourceRoot:
         )
 
     def address_for_offset(self, offset):
-        return self.root.add(dataType.length*offset)
+        return self.root.add(self.resource_struct.length*offset)
 
     def node_at(self, offset):
         return self.build_from_address(self.address_for_offset(offset))
@@ -215,7 +262,6 @@ def dump_file(node, path_root):
         # save the data
         with open(path, "wb") as output:
             output.write(file.data)
-
 
 
 def dump_root(path_dump, struct_addr, name_addr, data_addr):
