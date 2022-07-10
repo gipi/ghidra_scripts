@@ -197,25 +197,6 @@ def getXref(func):
     return list(set(callers))
 
 
-def getCLine(c_markup, address):
-    """Try to find the line in the C code for the given address"""
-    # c_markup is a ClangTokenGroup
-
-    queue = deque()
-
-    queue.append(c_markup)
-
-    while True:
-        tmp = queue.pop()
-
-        if tmp.getMinAddress() == address and tmp.getMaxAddress() == address:
-            return tmp
-
-        filtered = [(n, _) for n, _ in enumerate(list(tmp))
-         if _.getMinAddress() is not None and _.getMinAddress() <= address and _.getMaxAddress() >= address]
-
-        for index, node in filtered:
-            queue.append(tmp.Child(index))
 
 
 def getSymbolFromAnnotation(annotation):
@@ -451,27 +432,9 @@ def get_function_by_name(name):
     return candidates[0]
 
 
-# from <https://github.com/NationalSecurityAgency/ghidra/issues/1986>
-def createDataTypeFromC(declaration):
-    from ghidra.app.util.cparser.C import CParser
-    from ghidra.program.model.data import DataTypeConflictHandler
-    dtm = currentProgram.getDataTypeManager()
-    parser = CParser(dtm)
-    new_dt = parser.parse(declaration)
-    transaction = dtm.startTransaction("Adding new data")
-    dtm.addDataType(new_dt, None)
-    dtm.endTransaction(transaction, True)
 
 
-def check_and_create(datatype_name, declaration):
-    logger.info("check_and_create() for '%s'" % datatype_name)
 
-    dataType = getDataTypes(datatype_name)[0]  # TODO: we need to check > 1?
-
-    if dataType is None:
-        logger.warning("creating '%s'" % datatype_name)
-
-    return dataType
 
 
 def check():

@@ -1,4 +1,5 @@
 import logging
+import jarray
 
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
@@ -6,6 +7,7 @@ from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.model.pcode import HighLocal, VarnodeAST, Varnode, PcodeOpAST, HighSymbol, PcodeOp
 from ghidra.program.model.pcode import HighFunctionDBUtil
 from ghidra.program.model.symbol import SourceType
+from ghidra.program.model.data import CategoryPath
 from ghidra.app.tablechooser import TableChooserExecutor, AddressableRowObject, StringColumnDisplay
 
 
@@ -18,6 +20,54 @@ logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
 
+def get_bytes_from_binary(address, length):
+    v = jarray.zeros(length, 'b')
+    currentProgram.getMemory().getBytes(address, v)
+
+    return v.tostring()
+
+
+# from <https://github.com/NationalSecurityAgency/ghidra/issues/1986>
+def createDataTypeFromC(declaration, category=None):
+    """This works only for very simple data types that use "primitive" types."""
+    from ghidra.app.util.cparser.C import CParser
+    from ghidra.program.model.data import DataTypeConflictHandler
+
+    dtm = currentProgram.getDataTypeManager()
+    parser = CParser(dtm)
+
+    new_dt = parser.parse(declaration)
+    new_dt.setDescription("created from script")
+
+    if category:
+        new_dt.setCategoryPath(CategoryPath(category))
+
+    transaction = dtm.startTransaction("Adding new data")
+
+    dtm.addDataType(new_dt, None)
+    dtm.endTransaction(transaction, True)
+
+
+def check_and_create(datatype_name, declaration, category=None):
+    """Check that the datatype exists and if not create it from C declaration.
+
+    It returns the tuple (data type, boolean) where the last one indicates
+    with the data type was created."""
+    logger.info("check_and_create() for '%s'" % datatype_name)
+
+    dataTypes = getDataTypes(datatype_name)
+
+    is_created = False
+
+    if len(dataTypes) == 0 or dataTypes[0].isNotYetDefined():
+        logger.warning("creating '%s'" % datatype_name)
+        createDataTypeFromC(declaration, category)
+        dataTypes = getDataTypes(datatype_name)
+        is_created = True
+
+    return dataTypes[0], is_created
+
+
 def cache(f):
     _memo = {}
 
@@ -26,6 +76,27 @@ def cache(f):
             _memo[x] = f(x)
         return _memo[x]
     return _helper
+
+
+def getCLine(c_markup, address):
+    """Try to find the line in the C code for the given address"""
+    # c_markup is a ClangTokenGroup
+
+    queue = deque()
+
+    queue.append(c_markup)
+
+    while True:
+        tmp = queue.pop()
+
+        if tmp.getMinAddress() == address and tmp.getMaxAddress() == address:
+            return tmp
+
+        filtered = [(n, _) for n, _ in enumerate(list(tmp))
+         if _.getMinAddress() is not None and _.getMinAddress() <= address and _.getMaxAddress() >= address]
+
+        for index, node in filtered:
+            queue.append(tmp.Child(index))
 
 
 def get_function_by_name(name, namespace=None, external=False):
