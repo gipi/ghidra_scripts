@@ -23,13 +23,71 @@ from ghidra.program.model.symbol import SymbolUtilities
 ghidra.program.model.util.CodeUnitInsertionException: ghidra.program.model.util.CodeUnitInsertionException: Conflicting data exists at address 00403f20 to 00403f23
 """
 from ghidra.program.model.util import CodeUnitInsertionException
+from ghidra.program.model.data import StructureDataType, IntegerDataType, DataTypeConflictHandler
 
 import common
+
+# FIXME: it's tricky to define "complex" data types
+#        via C parsing since it seems that ghidra
+#        doesn't parse correctly if some other archives
+#        must be parsed before
+QARRAY_DECLARATION = """
+struct QArrayData {
+	int ref;
+	int size;
+	unsigned int alloc; /* this is a bitfield */
+	ptrdiff_t offset;
+};
+"""
 
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
+
+
+def create():
+	"""Create programmatically the QArrayData data type extracting
+	the information from the CompilerSpec class."""
+	logger.warning("creating QArrayData")
+
+	name = "QArrayData"
+
+	qarraydata = StructureDataType(name, 0)
+	qarraydata.add(
+		IntegerDataType.dataType,
+		currentProgram.getCompilerSpec().getDataOrganization().getIntegerSize(),
+		"ref",
+		"")
+	qarraydata.add(IntegerDataType.dataType,
+		currentProgram.getCompilerSpec().getDataOrganization().getIntegerSize(),
+		"size",
+		"")
+	qarraydata.add(IntegerDataType.dataType,
+		currentProgram.getCompilerSpec().getDataOrganization().getIntegerSize(),
+		"alloc",
+		"")
+	qarraydata.add(
+		IntegerDataType.dataType,
+		currentProgram.getCompilerSpec().getDataOrganization().getPointerSize(),
+		"offset",
+		"")  # this should be ptrdiff_t
+
+	currentProgram.getDataTypeManager().addDataType(qarraydata, DataTypeConflictHandler.REPLACE_HANDLER)
+
+	# you need to requery; since it has no category indicated you should obtain the first one
+	return getDataTypes(name)[0]
+
+
+def get():
+	"""Return the QArrayData data type or create programmatically it."""
+	data_types = getDataTypes('QArrayData')
+
+	# usually under "/Demangler" it exists an empty structure defined
+	if len(data_types) == 0 or data_types[0].isNotYetDefined() or data_types[0].getLength() != 16:
+		return create(), True
+
+	return data_types[0], False
 
 
 def slugify(label):
@@ -44,12 +102,7 @@ class QString:
 	def __init__(self, address):
 		self.address = address
 
-		dataType = getDataTypes("QArrayData")
-
-		if len(dataType) < 1:  # TODO: more check that the datatype is right
-			raise ValueError("You must define the QArrayData type")
-
-		self.dataType = dataType[0]
+		self.dataType, _ = get()
 
 		# sanity check (probably some more TODO)
 		if getInt(address) != -1:
@@ -117,8 +170,15 @@ class QString:
 def main(address):
 
 	string = QString(address)
-	# move the cursor at the adjacent location
-	goTo(string.end_aligned)
+	# check if just after the QArrayData there is another one
+	address_next = address.add(string.dataType.getLength())
+	value = getInt(address_next)
+
+	if value != -1:
+		# or move the cursor at the end of the string
+		address_next = string.end_aligned
+
+	goTo(address_next)
 
 
 main(currentAddress)
