@@ -27,6 +27,27 @@ def get_bytes_from_binary(address, length):
     return v.tostring()
 
 
+def get_or_set(address, datatype):
+    """get the data at the given address checking that
+    the datatype is the right one. If it's not, clear the data and
+    set the correct datatype."""
+    data = getDataAt(address)
+
+    if data and data.dataType == datatype:  # FIXME: for PointerDataType this isn't working
+        return data
+
+    logger.info('creating data of type {} @{}'.format(datatype, address))
+
+    return createData(address, datatype)
+
+
+def get_value(address, datatype):
+    """Get the actual value wrapped by the data type."""
+    data = get_or_set(address, datatype)
+
+    return data.getValue()
+
+
 # from <https://github.com/NationalSecurityAgency/ghidra/issues/1986>
 def createDataTypeFromC(declaration, category=None):
     """This works only for very simple data types that use "primitive" types."""

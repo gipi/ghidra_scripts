@@ -1,9 +1,3 @@
-# Create QString at the cursor
-#@author Gianluca Pacchiella
-#@category QT
-#@keybinding SHIFT-S
-#@menupath 
-#@toolbar
 import logging
 
 from ghidra.program.model.symbol import RefType
@@ -25,6 +19,9 @@ ghidra.program.model.util.CodeUnitInsertionException: ghidra.program.model.util.
 from ghidra.program.model.util import CodeUnitInsertionException
 from ghidra.program.model.data import StructureDataType, IntegerDataType, DataTypeConflictHandler
 
+# this below allows to have the global objects as in the scripts themself
+# see <https://github.com/NationalSecurityAgency/ghidra/issues/1919>
+from __main__ import *
 import common
 
 # FIXME: it's tricky to define "complex" data types
@@ -67,9 +64,20 @@ def create():
 		currentProgram.getCompilerSpec().getDataOrganization().getIntegerSize(),
 		"alloc",
 		"")
+
+	# we need to pack the structure
+	qarraydata.setToDefaultPacking()
+
+	# for the offset we need to get the datatype that have the same size of a pointer
+	# but is an integer; see <https://doc.qt.io/qt-6/qtglobal.html#qptrdiff-typedef>
+	pointer_size = currentProgram.getCompilerSpec().getDataOrganization().getPointerSize()
+	ptrdiffDataType = IntegerDataType.getSignedDataType(
+		pointer_size,
+		currentProgram.getDataTypeManager(),
+	)
 	qarraydata.add(
-		IntegerDataType.dataType,
-		currentProgram.getCompilerSpec().getDataOrganization().getPointerSize(),
+		ptrdiffDataType,
+		pointer_size,
 		"offset",
 		"")  # this should be ptrdiff_t
 
@@ -99,10 +107,10 @@ class QString:
 	INDEX_QARRAYDATA_OFFSET = 3
 	INDEX_QARRAYDATA_LENGTH = 1
 
+	dataType, _ = get()
+
 	def __init__(self, address):
 		self.address = address
-
-		self.dataType, _ = get()
 
 		# sanity check (probably some more TODO)
 		if getInt(address) != -1:
@@ -146,6 +154,10 @@ class QString:
 
 		createLabel(address, 'QARRAYDATA_%s' % slugify(str_), True)
 
+	@classmethod
+	def getHeaderSize(cls):
+		return cls.dataType.getLength()
+
 	@property
 	def offset(self):
 		return self._d.getComponent(self.INDEX_QARRAYDATA_OFFSET).value.getValue()
@@ -166,19 +178,5 @@ class QString:
 		"""Return the address where the data pointed by this end but aligned"""
 		return self.address.add((self.offset + (self.size + 1) * 2 + 3) & 0xfffffc)  # FIXME: generate mask
 
-
-def main(address):
-
-	string = QString(address)
-	# check if just after the QArrayData there is another one
-	address_next = address.add(string.dataType.getLength())
-	value = getInt(address_next)
-
-	if value != -1:
-		# or move the cursor at the end of the string
-		address_next = string.end_aligned
-
-	goTo(address_next)
-
-
-main(currentAddress)
+	def getString(self):
+		return self.data if type(self.data) == str else self.data.value
